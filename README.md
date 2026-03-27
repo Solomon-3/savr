@@ -101,16 +101,6 @@ npm run build
 3. Start the network
 4. Savr auto-detects the node — no extra config needed
 
-**Manual configuration:**
-```bash
-# Windows
-set LND_DIR=C:\path\to\lnd\directory
-set REST_HOST=https://localhost:8082
-
-# macOS / Linux
-export LND_DIR=/path/to/lnd/directory
-export REST_HOST=https://localhost:8082
-
 python app.py
 ```
 
