@@ -86,3 +86,19 @@ class LNDClient:
         resp = self._get(f"/v1/payreq/{pay_req}")
         resp.raise_for_status()
         return resp.json()
+
+    def pay_invoice(self, payment_request):
+        """
+        Pay a BOLT11 invoice. Uses SendPaymentSync via the REST API.
+        Returns dict with payment_preimage on success, raises on failure.
+        """
+        data = {"payment_request": payment_request}
+        resp = self._post("/v1/channels/transactions", data)
+        resp.raise_for_status()
+        result = resp.json()
+        if result.get("payment_error"):
+            raise ValueError(result["payment_error"])
+        return {
+            "payment_preimage": result.get("payment_preimage", ""),
+            "payment_route": result.get("payment_route", {}),
+        }

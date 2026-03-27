@@ -47,6 +47,20 @@ export function checkPayment(rHash) {
   return request(`/api/check_payment/${rHash}`);
 }
 
+export function decodeInvoice(goalId, paymentRequest) {
+  return request(`/api/goals/${goalId}/decode_invoice`, {
+    method: "POST",
+    body: JSON.stringify({ payment_request: paymentRequest }),
+  });
+}
+
+export function sendPayment(goalId, paymentRequest, inviteCode) {
+  return request(`/api/goals/${goalId}/send`, {
+    method: "POST",
+    body: JSON.stringify({ payment_request: paymentRequest, invite_code: inviteCode }),
+  });
+}
+
 export function fetchContributors(goalId) {
   return request(`/api/goals/${goalId}/contributors`);
 }

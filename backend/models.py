@@ -171,6 +171,21 @@ def settle_contribution(r_hash):
     return updated
 
 
+def mark_goal_complete_if_reached(goal_id):
+    """Set is_active = 2 (complete) when current_amount >= target_amount."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT current_amount, target_amount, is_active FROM goals WHERE id = ?",
+        (goal_id,),
+    ).fetchone()
+    if row and row["is_active"] == 1 and row["current_amount"] >= row["target_amount"]:
+        conn.execute(
+            "UPDATE goals SET is_active = 2 WHERE id = ?", (goal_id,)
+        )
+        conn.commit()
+    conn.close()
+
+
 def get_goal_contributors(goal_id):
     conn = get_db()
     rows = conn.execute(

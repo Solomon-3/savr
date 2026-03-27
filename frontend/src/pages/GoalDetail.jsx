@@ -4,7 +4,10 @@ import { fetchGoal, contribute, verifyCode } from "../api";
 import PaymentModal from "../components/PaymentModal";
 import ContributorList from "../components/ContributorList";
 import ActivityFeed from "../components/ActivityFeed";
+import CelebrationCard from "../components/CelebrationCard";
+import SendModal from "../components/SendModal";
 
+// ── Invite code gate ─────────────────────────────────────────────────────────
 function InviteGate({ goalId, onUnlocked }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
@@ -18,7 +21,6 @@ function InviteGate({ goalId, onUnlocked }) {
     setChecking(true);
     try {
       await verifyCode(goalId, code.trim());
-      // Valid — cache it so the user doesn't have to re-enter on refresh
       localStorage.setItem(`savr_code_${goalId}`, code.trim().toUpperCase());
       onUnlocked(code.trim().toUpperCase());
     } catch {
@@ -52,13 +54,14 @@ function InviteGate({ goalId, onUnlocked }) {
   );
 }
 
+// ── Main component ────────────────────────────────────────────────────────────
 export default function GoalDetail() {
   const { id } = useParams();
   const [goal, setGoal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Invite code access — null means not yet unlocked
+  // Invite code (null = not unlocked yet)
   const [unlockedCode, setUnlockedCode] = useState(() =>
     localStorage.getItem(`savr_code_${id}`) || null
   );
@@ -69,8 +72,9 @@ export default function GoalDetail() {
   const [contributing, setContributing] = useState(false);
   const [formError, setFormError] = useState("");
 
-  // Payment modal
+  // Modals
   const [paymentData, setPaymentData] = useState(null);
+  const [showSendModal, setShowSendModal] = useState(false);
 
   const loadGoal = useCallback(() => {
     fetchGoal(id)
@@ -86,7 +90,6 @@ export default function GoalDetail() {
   async function handleContribute(e) {
     e.preventDefault();
     setFormError("");
-
     if (!contributorName.trim()) return setFormError("Enter your name");
     if (!amount || Number(amount) <= 0) return setFormError("Enter a valid amount");
 
@@ -95,7 +98,6 @@ export default function GoalDetail() {
       const data = await contribute(id, contributorName.trim(), Number(amount), unlockedCode);
       setPaymentData(data);
     } catch (err) {
-      // If the stored code was rejected server-side, clear it so the gate shows again
       if (err.message === "Invalid invite code") {
         localStorage.removeItem(`savr_code_${id}`);
         setUnlockedCode(null);
@@ -116,6 +118,7 @@ export default function GoalDetail() {
   if (error) return <div className="error-state">Error: {error}</div>;
   if (!goal) return <div className="error-state">Goal not found</div>;
 
+  const isComplete = goal.current_amount >= goal.target_amount;
   const pct = Math.min(100, Math.round((goal.current_amount / goal.target_amount) * 100));
   const remaining = Math.max(0, goal.target_amount - goal.current_amount);
   const btcAmount = (goal.target_amount / 100_000_000).toFixed(8);
@@ -125,6 +128,7 @@ export default function GoalDetail() {
     <div className="goal-detail">
       <Link to="/" className="back-link">&larr; All Goals</Link>
 
+      {/* ── Header ── */}
       <div className="goal-header">
         <div className="goal-header-left">
           <div className="goal-badges">
@@ -132,7 +136,8 @@ export default function GoalDetail() {
               {goal.goal_type === "collaborative" ? "Collaborative" : "Personal"}
             </span>
             <span className="goal-badge freq">{goal.frequency} target</span>
-            {unlockedCode && (
+            {isComplete && <span className="goal-badge complete">&#10003; Complete</span>}
+            {!isComplete && unlockedCode && (
               <span className="goal-badge unlocked">&#128275; Joined</span>
             )}
           </div>
@@ -140,12 +145,15 @@ export default function GoalDetail() {
           {goal.description && <p className="goal-desc">{goal.description}</p>}
           <p className="goal-meta">
             Created by <strong>{goal.creator_name}</strong>
-            {goal.deadline && <> &middot; Deadline: {new Date(goal.deadline).toLocaleDateString()}</>}
+            {goal.deadline && (
+              <> &middot; Deadline: {new Date(goal.deadline).toLocaleDateString()}</>
+            )}
           </p>
         </div>
       </div>
 
-      <div className="goal-progress-section">
+      {/* ── Progress ── */}
+      <div className={`goal-progress-section${isComplete ? " complete" : ""}`}>
         <div className="progress-stats">
           <div className="stat">
             <span className="stat-value">{Number(goal.current_amount).toLocaleString()}</span>
@@ -165,16 +173,24 @@ export default function GoalDetail() {
           </div>
         </div>
         <div className="progress-bar large">
-          <div className="progress-fill" style={{ width: `${pct}%` }} />
+          <div
+            className={`progress-fill${isComplete ? " complete" : ""}`}
+            style={{ width: `${pct}%` }}
+          />
         </div>
       </div>
 
-      {/* Progress and activity are always visible (transparency) */}
+      {/* ── Main content ── */}
       <div className="goal-content">
         <div className="goal-main">
-          {needsCode ? (
+          {isComplete ? (
+            /* 🎉 Goal reached — show celebration card with Send button */
+            <CelebrationCard goal={goal} onSend={() => setShowSendModal(true)} />
+          ) : needsCode ? (
+            /* 🔒 Collaborative + not yet unlocked */
             <InviteGate goalId={id} onUnlocked={setUnlockedCode} />
           ) : (
+            /* Normal contribution form */
             <div className="contribute-section">
               <h2>Contribute</h2>
               <form onSubmit={handleContribute} className="contribute-form">
@@ -209,11 +225,22 @@ export default function GoalDetail() {
         </div>
       </div>
 
+      {/* ── Payment received modal ── */}
       {paymentData && (
         <PaymentModal
           data={paymentData}
           onSuccess={handlePaymentSuccess}
           onClose={() => setPaymentData(null)}
+        />
+      )}
+
+      {/* ── Send sats modal ── */}
+      {showSendModal && (
+        <SendModal
+          goalId={id}
+          inviteCode={unlockedCode}
+          goalType={goal.goal_type}
+          onClose={() => setShowSendModal(false)}
         />
       )}
     </div>

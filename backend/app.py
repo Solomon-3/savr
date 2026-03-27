@@ -22,9 +22,10 @@ from models import (
     settle_contribution,
     get_goal_contributors,
     verify_invite_code,
+    mark_goal_complete_if_reached,
 )
 
-app = Flask(__name__, static_folder="frontend/build", static_url_path="")
+app = Flask(__name__, static_folder="../frontend/dist", static_url_path="")
 CORS(app)
 
 # Initialize database
@@ -194,10 +195,64 @@ def api_check_payment(r_hash):
     try:
         result = lnd.lookup_invoice(r_hash)
         if result["settled"]:
-            settle_contribution(r_hash)
+            updated = settle_contribution(r_hash)
+            # Check if the goal is now complete and mark it
+            if updated:
+                mark_goal_complete_if_reached(updated["goal_id"])
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/goals/<goal_id>/decode_invoice", methods=["POST"])
+def api_decode_invoice(goal_id):
+    """Decode a BOLT11 invoice so the frontend can preview amount + memo before sending."""
+    if not lnd:
+        return jsonify({"error": "LND not connected"}), 503
+    data = request.json or {}
+    pay_req = data.get("payment_request", "").strip()
+    if not pay_req:
+        return jsonify({"error": "payment_request is required"}), 400
+    try:
+        decoded = lnd.decode_pay_req(pay_req)
+        return jsonify({
+            "amount": int(decoded.get("num_satoshis", 0)),
+            "memo": decoded.get("description", ""),
+            "destination": decoded.get("destination", ""),
+        })
+    except Exception as e:
+        return jsonify({"error": f"Could not decode invoice: {str(e)}"}), 400
+
+
+@app.route("/api/goals/<goal_id>/send", methods=["POST"])
+def api_send_payment(goal_id):
+    """Pay an outgoing BOLT11 invoice from the goal's collected funds."""
+    if not lnd:
+        return jsonify({"error": "LND not connected"}), 503
+
+    goal = get_goal(goal_id)
+    if not goal:
+        return jsonify({"error": "Goal not found"}), 404
+
+    if goal["current_amount"] < goal["target_amount"]:
+        return jsonify({"error": "Goal has not been reached yet"}), 400
+
+    data = request.json or {}
+    pay_req = data.get("payment_request", "").strip()
+    if not pay_req:
+        return jsonify({"error": "payment_request is required"}), 400
+
+    # For collaborative goals require the invite code
+    if goal["goal_type"] == "collaborative":
+        code = data.get("invite_code", "")
+        if not verify_invite_code(goal_id, code):
+            return jsonify({"error": "Invalid invite code"}), 403
+
+    try:
+        result = lnd.pay_invoice(pay_req)
+        return jsonify({"success": True, "payment_preimage": result["payment_preimage"]})
+    except Exception as e:
+        return jsonify({"error": f"Payment failed: {str(e)}"}), 500
 
 
 # --- Serve React Frontend ---
